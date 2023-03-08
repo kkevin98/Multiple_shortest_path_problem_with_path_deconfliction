@@ -1,5 +1,6 @@
 from . import gb
 from . import GRB
+from . import random
 
 
 class WArc:
@@ -44,28 +45,98 @@ def network_instances(networks_df):
                for idx, (i, j) in enumerate(networks_df.columns)]  # ... is formed by a set of arcs
 
 
-def _agent_should_start_on_node(agent_idx, num_of_network_rows, node):
+def _agent_should_start_on_node(agent_idx, node, first_network_column):
     '''Tells if an agent with a certain index ('agent_idx') should start on 'node' or not'''
 
-    return agent_idx % num_of_network_rows == node
+    return agent_idx % len(first_network_column) == node
 
 
-def generate_agents(network_shape, congestion_level):
-    '''Generates a list of agents from a specified congestion level of a network of shape network_shape'''
+def _generate_agents_with_high_simmetry(network_shape, num_of_agents):
 
-    # * Notice that agents are not sorted by idx
-
+    num_of_network_nodes = network_shape[0] * network_shape[1]
     num_of_network_rows = network_shape[0]
-    num_of_agents = int(num_of_network_rows * congestion_level)
-    num_of_nodes = num_of_network_rows * network_shape[1]
     first_network_column = list(range(num_of_network_rows))
+    last_network_column = [node + num_of_network_nodes - num_of_network_rows
+                           for node in first_network_column]
+    agent_idxs = list(range(num_of_agents))
+    source_node = random.choice(first_network_column)
+    terminus_node = random.choice(last_network_column)
+    
+    return [Agent(source_node,
+                  terminus_node,
+                  idx) for idx in agent_idxs]
+
+
+def _generate_agents_as_in_paper(network_shape, num_of_agents):
+
+    num_of_network_nodes = network_shape[0] * network_shape[1]
+    num_of_network_rows = network_shape[0]
+    first_network_column = list(range(num_of_network_rows))
+
     agent_idxs = list(range(num_of_agents))
 
     return [Agent(node,
-                  node + num_of_nodes - num_of_network_rows,
+                  node + num_of_network_nodes - num_of_network_rows,
                   agent_idx)
             for node in first_network_column
-            for agent_idx in agent_idxs if _agent_should_start_on_node(agent_idx, num_of_network_rows, node)]
+            for agent_idx in agent_idxs if _agent_should_start_on_node(agent_idx, node, first_network_column)]
+
+
+def _generate_agents_with_low_simmetry(network_shape, num_of_agents):
+
+    num_of_network_nodes = network_shape[0] * network_shape[1]
+    num_of_network_rows = network_shape[0]
+    first_network_column = list(range(num_of_network_rows))
+    last_network_column = [node + num_of_network_nodes - num_of_network_rows
+                           for node in first_network_column]
+
+    agent_idxs = list(range(num_of_agents))
+
+    return [Agent(random.choice(first_network_column),
+                  random.choice(last_network_column),
+                  idx) for idx in agent_idxs]
+
+
+def _generate_agents_at_random_beta(network_shape, num_of_agents):
+    '''
+    Agents sources and terminus are picked at random from the nodes of the networks
+    BETAAA  
+    '''
+
+    network_nodes = range(network_shape[0] * network_shape[1])
+
+    agent_idxs = list(range(num_of_agents))
+    # print(f"Before the while: {agent_idxs=}")
+    agents = []
+
+    while agent_idxs:
+        # print(f"From while: {agent_idxs=}")
+        agent_source = random.choice(network_nodes)
+        agent_terminus = random.choice(network_nodes)
+        if agent_source != agent_terminus:
+            agents.append(
+                Agent(agent_source, agent_terminus, agent_idxs.pop(0)))
+
+    return agents
+
+
+def generate_agents(network_shape, num_of_agents, *, symmetry="medium"):
+    '''Generates a list of agents from a specified congestion level of a network of shape network_shape'''
+
+    # * Notice that agents are not sorted by idx
+    # ? should you check that num_nodes is ok with network_shape
+
+    if symmetry == "high":
+
+        return _generate_agents_with_high_simmetry(network_shape, num_of_agents)
+
+    elif symmetry == "medium":
+
+        return _generate_agents_as_in_paper(network_shape, num_of_agents)
+
+    elif symmetry == "low":
+
+        return _generate_agents_with_low_simmetry(network_shape, num_of_agents)
 
 
 def _compute_flow(X, node, w_arcs, agent):
@@ -181,6 +252,42 @@ def set_NBP(nodes, w_arcs, agents):
         )
 
     return MSPP_PD_NBP_pb, X, R, Xi
+
+
+def set_ALP(nodes, w_arcs, agents):
+
+    # Additional decision variables
+    MSPP_PD_ALP_pb, X = set_MSPP(nodes, w_arcs, agents)
+
+    # Additional decision variables
+    Eps_var_shape = len(w_arcs)
+    Eps = MSPP_PD_ALP_pb.addMVar(Eps_var_shape,
+                                 vtype=GRB.BINARY,  # 17) Binary constraints
+                                 name="Eps")
+
+    # 15) Additional objective
+    penalty_obj = gb.quicksum(
+        - Eps[arc.idx] + gb.quicksum(X[arc.idx, agent.idx] for agent in agents)
+        for arc in w_arcs
+    )
+    MSPP_PD_ALP_pb.addObjectiveN(
+        penalty_obj, index=1, weight=1, name="Penalty"
+    )
+
+    # 16) Turning on eps_i constraints
+    for arc in w_arcs:
+        MSPP_PD_ALP_pb.addConstr(
+            1/len(agents) *
+            (gb.quicksum(X[arc.idx, agent.idx] for agent in agents))
+            <= Eps[arc.idx]
+        )
+        # ? Do we really need the following kind of constraints
+        MSPP_PD_ALP_pb.addConstr(
+            Eps[arc.idx] <= gb.quicksum(X[arc.idx, agent.idx]
+                                        for agent in agents)
+        )
+
+    return MSPP_PD_ALP_pb, X, Eps
 
 
 def set_problem(problem_type, nodes, w_arcs, agents):
