@@ -97,29 +97,6 @@ def _generate_agents_with_low_simmetry(network_shape, num_of_agents):
                   idx) for idx in agent_idxs]
 
 
-def _generate_agents_at_random_beta(network_shape, num_of_agents):
-    '''
-    Agents sources and terminus are picked at random from the nodes of the networks
-    BETAAA  
-    '''
-
-    network_nodes = range(network_shape[0] * network_shape[1])
-
-    agent_idxs = list(range(num_of_agents))
-    # print(f"Before the while: {agent_idxs=}")
-    agents = []
-
-    while agent_idxs:
-        # print(f"From while: {agent_idxs=}")
-        agent_source = random.choice(network_nodes)
-        agent_terminus = random.choice(network_nodes)
-        if agent_source != agent_terminus:
-            agents.append(
-                Agent(agent_source, agent_terminus, agent_idxs.pop(0)))
-
-    return agents
-
-
 def generate_agents(network_shape, num_of_agents, *, symmetry="medium"):
     '''Generates a list of agents from a specified congestion level of a network of shape network_shape'''
 
