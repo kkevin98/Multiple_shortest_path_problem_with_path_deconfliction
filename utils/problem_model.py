@@ -61,7 +61,7 @@ def _generate_agents_with_high_simmetry(network_shape, num_of_agents):
     agent_idxs = list(range(num_of_agents))
     source_node = random.choice(first_network_column)
     terminus_node = random.choice(last_network_column)
-    
+
     return [Agent(source_node,
                   terminus_node,
                   idx) for idx in agent_idxs]
@@ -209,6 +209,7 @@ def set_NBP(nodes, w_arcs, agents):
         penalty_obj, index=1, weight=1, name="Penalty")
 
     # 10,11) Turning on r_i constraints
+    # ! Should it be for agent and for arc not for agent and for node
     for agent in agents:
         for node in nodes:
             MSPP_PD_NBP_pb.addConstr(
@@ -233,7 +234,6 @@ def set_NBP(nodes, w_arcs, agents):
 
 def set_ALP(nodes, w_arcs, agents):
 
-    # Additional decision variables
     MSPP_PD_ALP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
     # Additional decision variables
@@ -267,6 +267,154 @@ def set_ALP(nodes, w_arcs, agents):
     return MSPP_PD_ALP_pb, X, Eps
 
 
+def set_NLP(nodes, w_arcs, agents):
+
+    MSPP_PD_NLP_pb, X = set_MSPP(nodes, w_arcs, agents)
+
+    # Additional decision variables
+    R_var_shape = len(nodes), len(agents)
+    R = MSPP_PD_NLP_pb.addMVar(R_var_shape,
+                               vtype=GRB.BINARY,  # 13) Binary constraints
+                               name="R")
+    Theta_var_shape = len(nodes)
+    Theta = MSPP_PD_NLP_pb.addMVar(Theta_var_shape,
+                                   vtype=GRB.BINARY,  # 20) Binary constraints
+                                   name="Theta")
+
+    # 18) Additional objective
+    penalty_obj = gb.quicksum(
+        - Theta[node] + gb.quicksum(R[node, agent.idx] for agent in agents)
+        for node in nodes
+    )
+    MSPP_PD_NLP_pb.addObjectiveN(
+        penalty_obj, index=1, weight=1, name="Penalty"
+    )
+
+    # 10,11) Turning on r_i constraints
+    # * Think a bit to understand
+    for arc in w_arcs:
+        for agent in agents:
+            R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
+            R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+
+    # 19) Turning on theta_i constraints
+    for node in nodes:
+        MSPP_PD_NLP_pb.addConstr(
+            1/len(agents) *
+            (gb.quicksum(R[node, agent.idx] for agent in agents))
+            <= Theta[node]
+        )
+        # ? Do we really need the following kind of constraints
+        MSPP_PD_NLP_pb.addConstr(
+            Theta[node] <= gb.quicksum(R[node, agent.idx]
+                                       for agent in agents)
+        )
+
+    return MSPP_PD_NLP_pb, X, R, Theta
+
+
+def set_AQP(nodes, w_arcs, agents):
+
+    MSPP_PD_AQP_pb, X = set_MSPP(nodes, w_arcs, agents)
+
+    # Additional decision variables
+    Z_var_shape = len(w_arcs), len(agents), len(agents)
+    Z = MSPP_PD_AQP_pb.addMVar(Z_var_shape,
+                               vtype=GRB.BINARY,  # 26) Binary constraints
+                               name="Z")
+
+    # 22) Additional (linearized) objective
+    penalty_obj = gb.quicksum(
+        Z[arc.idx, agent.idx, agent_.idx] for arc in w_arcs
+        for agent in agents for agent_ in agents if agent_.idx < agent.idx
+    )
+    MSPP_PD_AQP_pb.addObjectiveN(
+        penalty_obj, index=1, weight=1, name="Penalty"
+    )
+
+    # 23-25) Well-defined Z variable
+    for arc in w_arcs:
+        for agent in agents:
+            for agent_ in agents:
+                if agent_.idx < agent.idx:
+                    MSPP_PD_AQP_pb.addConstr(
+                        Z[arc.idx, agent.idx, agent_.idx] <= X[arc.idx, agent.idx]
+                    )
+                    MSPP_PD_AQP_pb.addConstr(
+                        Z[arc.idx, agent.idx, agent_.idx] <= X[arc.idx, agent_.idx]
+                    )
+                    MSPP_PD_AQP_pb.addConstr(
+                        Z[arc.idx, agent.idx, agent_.idx] >=
+                        X[arc.idx, agent.idx] + X[arc.idx, agent_.idx] - 1
+                    )
+
+    return MSPP_PD_AQP_pb, X, Z
+
+
+def set_NQP(nodes, w_arcs, agents):
+
+    MSPP_PD_NQP_pb, X = set_MSPP(nodes, w_arcs, agents)
+
+    # Additional decision variables
+    R_var_shape = len(nodes), len(agents)
+    R = MSPP_PD_NQP_pb.addMVar(R_var_shape,
+                               vtype=GRB.BINARY,  # 13) Binary constraints
+                               name="R")
+    W_var_shape = len(nodes), len(agents), len(agents)
+    W = MSPP_PD_NQP_pb.addMVar(W_var_shape,
+                               vtype=GRB.BINARY,  # 33) Binary constraints
+                               name="W")
+
+    # 28) Additional (linearized) objective
+    penalty_obj = gb.quicksum(
+        W[node, agent.idx, agent_.idx] for node in nodes
+        for agent in agents for agent_ in agents if agent_.idx < agent.idx
+    )
+    MSPP_PD_NQP_pb.addObjectiveN(
+        penalty_obj, index=1, weight=1, name="Penalty"
+    )
+
+    # 10,11) Turning on r_i constraints
+    # * Think a bit to understand
+    for arc in w_arcs:
+        for agent in agents:
+            MSPP_PD_NQP_pb.addConstr(
+                R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
+            )
+            MSPP_PD_NQP_pb.addConstr(
+                R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+            )
+
+    # 29) Turning off r_i constraints
+    for node in nodes:
+        for agent in agents:
+            MSPP_PD_NQP_pb.addConstr(
+                R[node, agent.idx] <= (
+                    gb.quicksum(X[arc.idx, agent.idx] for arc in w_arcs if arc.i == node) +
+                    gb.quicksum(X[arc.idx, agent.idx]
+                                for arc in w_arcs if arc.j == node)
+                )
+            )
+
+    # 30-32) Well-defined W variable
+    for node in nodes:
+        for agent in agents:
+            for agent_ in agents:
+                if agent_.idx < agent.idx:
+                    MSPP_PD_NQP_pb.addConstr(
+                        W[node, agent.idx, agent_.idx] <= R[node, agent.idx]
+                    )
+                    MSPP_PD_NQP_pb.addConstr(
+                        W[node, agent.idx, agent_.idx] <= R[node, agent_.idx]
+                    )
+                    MSPP_PD_NQP_pb.addConstr(
+                        W[node, agent.idx, agent_.idx] >=
+                        R[node, agent.idx] + R[node, agent_.idx] - 1
+                    )
+
+    return MSPP_PD_NQP_pb, X, R, W
+
+
 def set_problem(problem_type, nodes, w_arcs, agents):
     params = nodes, w_arcs, agents
     if problem_type == "MSPP":
@@ -275,3 +423,11 @@ def set_problem(problem_type, nodes, w_arcs, agents):
         return set_ABP(*params)
     elif problem_type == "NBP":
         return set_NBP(*params)
+    elif problem_type == "ALP":
+        return set_ALP(*params)
+    elif problem_type == "NLP":
+        return set_NLP(*params)
+    elif problem_type == "AQP":
+        return set_AQP(*params)
+    elif problem_type == "NQP":
+        return set_NQP(*params)
