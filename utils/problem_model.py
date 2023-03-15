@@ -209,24 +209,19 @@ def set_NBP(nodes, w_arcs, agents):
         penalty_obj, index=1, weight=1, name="Penalty")
 
     # 10,11) Turning on r_i constraints
-    # ! Should it be for agent and for arc not for agent and for node
-    for agent in agents:
-        for node in nodes:
-            MSPP_PD_NBP_pb.addConstr(
-                R[node, agent.idx] >= gb.quicksum(X[arc.idx, agent.idx]
-                                                  for arc in w_arcs if arc.i == node)
-            )
-            MSPP_PD_NBP_pb.addConstr(
-                R[node, agent.idx] >= gb.quicksum(X[arc.idx, agent.idx]
-                                                  for arc in w_arcs if arc.j == node)
-            )
+    # * Think a bit to understand
+    for arc in w_arcs:
+        for agent in agents:
+            R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
+            R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
 
     # 12) Turning on xi_i constraints
-    #! Seems weird, the -1 should be outside the summation
+    # ! Different from paper. Paper seems weird, the -1 should be outside the summation
     for node in nodes:
         MSPP_PD_NBP_pb.addConstr(
-            1/len(agents) * (gb.quicksum(R[node, agent.idx] - 1
-                                         for agent in agents))
+            1/len(agents) *
+            (gb.quicksum(R[node, agent.idx] for agent in agents) - 1)
+            <= Xi[node]
         )
 
     return MSPP_PD_NBP_pb, X, R, Xi
@@ -247,7 +242,7 @@ def set_ALP(nodes, w_arcs, agents):
         - Eps[arc.idx] + gb.quicksum(X[arc.idx, agent.idx] for agent in agents)
         for arc in w_arcs
     )
-    MSPP_PD_ALP_pb.addObjectiveN(
+    MSPP_PD_ALP_pb.setObjectiveN(
         penalty_obj, index=1, weight=1, name="Penalty"
     )
 
@@ -286,12 +281,11 @@ def set_NLP(nodes, w_arcs, agents):
         - Theta[node] + gb.quicksum(R[node, agent.idx] for agent in agents)
         for node in nodes
     )
-    MSPP_PD_NLP_pb.addObjectiveN(
+    MSPP_PD_NLP_pb.setObjectiveN(
         penalty_obj, index=1, weight=1, name="Penalty"
     )
 
     # 10,11) Turning on r_i constraints
-    # * Think a bit to understand
     for arc in w_arcs:
         for agent in agents:
             R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
@@ -328,7 +322,7 @@ def set_AQP(nodes, w_arcs, agents):
         Z[arc.idx, agent.idx, agent_.idx] for arc in w_arcs
         for agent in agents for agent_ in agents if agent_.idx < agent.idx
     )
-    MSPP_PD_AQP_pb.addObjectiveN(
+    MSPP_PD_AQP_pb.setObjectiveN(
         penalty_obj, index=1, weight=1, name="Penalty"
     )
 
@@ -370,7 +364,7 @@ def set_NQP(nodes, w_arcs, agents):
         W[node, agent.idx, agent_.idx] for node in nodes
         for agent in agents for agent_ in agents if agent_.idx < agent.idx
     )
-    MSPP_PD_NQP_pb.addObjectiveN(
+    MSPP_PD_NQP_pb.setObjectiveN(
         penalty_obj, index=1, weight=1, name="Penalty"
     )
 
