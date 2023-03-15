@@ -425,3 +425,28 @@ def set_problem(problem_type, nodes, w_arcs, agents):
         return set_AQP(*params)
     elif problem_type == "NQP":
         return set_NQP(*params)
+
+
+def evaluate_pb_objectives(problem):
+    """Get optimal objectives from an optimization problem
+
+    Args:
+        problem (gb.Model): The optimization problem
+
+    Returns:
+        list: a list with the optimal values of the different problem's objectives
+    """
+
+    # ? Shold I check optimality
+    # * See: https://www.gurobi.com/documentation/9.5/refman/working_with_multiple_obje.html
+    assert problem.Status == GRB.Status.OPTIMAL
+
+    problem.params.SolutionNumber = 0  # Set best solution found
+    opt_solution = []
+
+    # Add to opt_solution the value of each objective
+    for obj in range(problem.NumObj):
+        problem.params.ObjNumber = obj
+        opt_solution.append(problem.ObjNVal)
+
+    return opt_solution
