@@ -3,5 +3,6 @@ import gurobi as gb
 import random
 from gurobipy import GRB
 
-import utils.data_reader
+import utils.file_reader
+import utils.data_generator
 import utils.problem_model

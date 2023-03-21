@@ -1,7 +1,19 @@
+"""Module that contains functions to read the paper's data"""
 from . import pd
 
 
 def read_networks_csv(filename, along):
+    """Function that read one or more network instances from a csv file
+
+    Args:
+        filename (str): The name of the file to be read
+        along (str): Specify how instances are ordered on the file.
+          The only accepted values are "rows", if different instances are on different rows,
+          or "cols", if different instances are on different columns
+
+    Returns:
+        pd.Dataframe: a pandas dataframe containing network instances along rows and networks' arcs along columns
+    """
 
     if along == "rows":
         networks_df = pd.read_csv(filename,

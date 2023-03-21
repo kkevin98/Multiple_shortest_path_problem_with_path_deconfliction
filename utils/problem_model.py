@@ -1,122 +1,23 @@
+"""Module that contains useful functions to create or deal with MSPPs and MSPP-PDs"""
 from . import gb
 from . import GRB
-from . import random
-
-
-class WArc:
-
-    def __init__(self, begin, end, weight, index):
-        self.i = begin
-        self.j = end
-        self.w = weight
-        self.idx = index
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.i!r}, {self.j!r}, {self.w!r}, {self.idx!r})"
-
-
-class Agent:
-
-    def __init__(self, source, terminus, index):
-        # ? Consider agent name
-        self.source = source
-        self.terminus = terminus
-        self.idx = index
-        self.path = None
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.source!r}, {self.terminus!r}, {self.idx!r})"
-
-
-def get_nodes(networks_df):
-    '''Function that gives a list with all the nodes in the network'''
-
-    starting_nodes = networks_df.columns.get_level_values(0)
-    ending_nodes = networks_df.columns.get_level_values(1)
-
-    return [i for i in starting_nodes.union(ending_nodes).unique()]
-
-
-def network_instances(networks_df):
-    '''Functions that gives one by one the network instaces of the dataframe in the form of a list of arcs '''
-
-    for it in networks_df.index:  # each network instance...
-        yield [WArc(i, j, networks_df.loc[it, (i, j)], idx)
-               for idx, (i, j) in enumerate(networks_df.columns)]  # ... is formed by a set of arcs
-
-
-def _agent_should_start_on_node(agent_idx, node, first_network_column):
-    '''Tells if an agent with a certain index ('agent_idx') should start on 'node' or not'''
-
-    return agent_idx % len(first_network_column) == node
-
-
-def _generate_agents_with_high_simmetry(network_shape, num_of_agents):
-
-    num_of_network_nodes = network_shape[0] * network_shape[1]
-    num_of_network_rows = network_shape[0]
-    first_network_column = list(range(num_of_network_rows))
-    last_network_column = [node + num_of_network_nodes - num_of_network_rows
-                           for node in first_network_column]
-    agent_idxs = list(range(num_of_agents))
-    source_node = random.choice(first_network_column)
-    terminus_node = random.choice(last_network_column)
-
-    return [Agent(source_node,
-                  terminus_node,
-                  idx) for idx in agent_idxs]
-
-
-def _generate_agents_as_in_paper(network_shape, num_of_agents):
-
-    num_of_network_nodes = network_shape[0] * network_shape[1]
-    num_of_network_rows = network_shape[0]
-    first_network_column = list(range(num_of_network_rows))
-
-    agent_idxs = list(range(num_of_agents))
-
-    return [Agent(node,
-                  node + num_of_network_nodes - num_of_network_rows,
-                  agent_idx)
-            for node in first_network_column
-            for agent_idx in agent_idxs if _agent_should_start_on_node(agent_idx, node, first_network_column)]
-
-
-def _generate_agents_with_low_simmetry(network_shape, num_of_agents):
-
-    num_of_network_nodes = network_shape[0] * network_shape[1]
-    num_of_network_rows = network_shape[0]
-    first_network_column = list(range(num_of_network_rows))
-    last_network_column = [node + num_of_network_nodes - num_of_network_rows
-                           for node in first_network_column]
-
-    agent_idxs = list(range(num_of_agents))
-
-    return [Agent(random.choice(first_network_column),
-                  random.choice(last_network_column),
-                  idx) for idx in agent_idxs]
-
-
-def generate_agents(network_shape, num_of_agents, *, symmetry="medium"):
-    '''Generates a list of agents from a specified congestion level of a network of shape network_shape'''
-
-    # * Notice that agents are not sorted by idx
-    # ? should you check that num_nodes is ok with network_shape
-
-    if symmetry == "high":
-
-        return _generate_agents_with_high_simmetry(network_shape, num_of_agents)
-
-    elif symmetry == "medium":
-
-        return _generate_agents_as_in_paper(network_shape, num_of_agents)
-
-    elif symmetry == "low":
-
-        return _generate_agents_with_low_simmetry(network_shape, num_of_agents)
 
 
 def _compute_flow(X, node, w_arcs, agent):
+    """Compute the flow in a given node for a particular agent
+
+    The flow is defined as the difference between outgoing and ingoing edges traversed by the agent in that node
+
+    Args:
+        X (gb.MVar): X decision variables of a MSPP or MSPP-PD
+        node (int): node under consideration
+        w_arcs (list): list of weighted arcs that represent the network instance
+        agent (Agent): the agent for which to compue the flow
+
+    Returns:
+        gb.MLinExpr: an expression for the computed flow 
+    """
+
     flow_out = gb.quicksum(
         X[arc.idx, agent.idx]
         for arc in w_arcs if arc.i == node
@@ -129,6 +30,18 @@ def _compute_flow(X, node, w_arcs, agent):
 
 
 def set_MSPP(nodes, w_arcs, agents):
+    """Create and set a MSPP for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_pb, X) where:
+          - MSPP_pb is a gb.Model that represent the created MSPP
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+    """
 
     MSPP_pb = gb.Model()
     MSPP_pb.setParam("OutputFlag", 0)
@@ -160,6 +73,20 @@ def set_MSPP(nodes, w_arcs, agents):
 
 
 def set_ABP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(ABP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_ABP_pb, X, Psi) where:
+          - MSPP_PD_ABP_pb is a gb.Model that represent the created MSPP-PD(ABP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - Psi is a gb.MVar containing the decison variables that tell if more than one agents
+            traverse a specific arc
+    """
 
     MSPP_PD_ABP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -188,6 +115,22 @@ def set_ABP(nodes, w_arcs, agents):
 
 
 def set_NBP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(NBP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_NBP_pb, X, R, Xi) where:
+          - MSPP_PD_NBP_pb is a gb.Model that represent the created MSPP-PD(NBP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - R is a gb.MVar containing the decision variables that tell if a particular
+            agent traverse a particular node
+          - Xi is a gb.MVar containing the decision variables that tell if more than one agent
+            traverse a particular node
+    """
 
     MSPP_PD_NBP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -228,6 +171,20 @@ def set_NBP(nodes, w_arcs, agents):
 
 
 def set_ALP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(ALP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_ALP_pb, X, Eps) where:
+          - MSPP_PD_ALP_pb is a gb.Model that represent the created MSPP-PD(ALP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - Eps is a gb.MVar containing the decision variables that tell if a any agent
+            traverse a particular arc
+    """
 
     MSPP_PD_ALP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -263,6 +220,22 @@ def set_ALP(nodes, w_arcs, agents):
 
 
 def set_NLP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(NLP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_NLP_pb, X, R, Theta) where:
+          - MSPP_PD_NLP_pb is a gb.Model that represent the created MSPP-PD(NLP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - R is a gb.MVar containing the decision variables that tell if a particular
+            agent traverse a particular node
+          - Theta is a gb.MVar containing the decision variables that tell if any agent
+            traverse a particular node
+    """
 
     MSPP_PD_NLP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -308,6 +281,20 @@ def set_NLP(nodes, w_arcs, agents):
 
 
 def set_AQP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(AQP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_AQP_pb, Z) where:
+          - MSPP_PD_AQP_pb is a gb.Model that represent the created MSPP-PD(AQP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - Z is a gb.MVar containing the decision variables used to linearize the original
+            objective function of the MSPP-PD(AQP)
+    """
 
     MSPP_PD_AQP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -346,6 +333,22 @@ def set_AQP(nodes, w_arcs, agents):
 
 
 def set_NQP(nodes, w_arcs, agents):
+    """Create and set a MSPP-PD(NQP) for a network instance given the agents to route
+
+    Args:
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (MSPP_PD_NQP_pb, R, W) where:
+          - MSPP_PD_AQP_pb is a gb.Model that represent the created MSPP-PD(AQP)
+          - X is a gb.MVar containing the decision variables associated to the agents' paths
+          - R is a gb.MVar containing the decision variables that tell if a particular
+            agent traverse a particular node
+          - W is a gb.MVar containing the decision variables used to linearize the original
+            objective function of the MSPP-PD(AQP)
+    """
 
     MSPP_PD_NQP_pb, X = set_MSPP(nodes, w_arcs, agents)
 
@@ -410,6 +413,20 @@ def set_NQP(nodes, w_arcs, agents):
 
 
 def set_problem(problem_type, nodes, w_arcs, agents):
+    """Formulate the specified optimization problem for a network instance given the agents to route
+    
+    Args:
+        problem_type (str): The optimization problem to formulate. Only MSPP and MSPP-PD variants are accepted
+        nodes (list): list of the nodes in the network instance
+        w_arcs (list): list of weighted arcs in the network instance
+        agents (list): list of agents that has to be routed
+
+    Returns:
+        tuple: a tuple (Problem, *_) where
+          - Problem is a gb.Model that represent the selected and created optimization problem
+          - *_ is a tuple of gb.MVar containing the decision variables related to the selected problem 
+    """
+
     params = nodes, w_arcs, agents
     if problem_type == "MSPP":
         return set_MSPP(*params)
