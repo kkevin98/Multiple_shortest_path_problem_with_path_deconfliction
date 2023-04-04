@@ -128,7 +128,7 @@ def set_NBP(nodes, w_arcs, agents):
           - X is a gb.MVar containing the decision variables associated to the agents' paths
           - R is a gb.MVar containing the decision variables that tell if a particular
             agent traverse a particular node
-          - Xi is a gb.MVar containing the decision variables that tell if more than one agent
+          - Zeta is a gb.MVar containing the decision variables that tell if more than one agent
             traverse a particular node
     """
 
@@ -139,24 +139,27 @@ def set_NBP(nodes, w_arcs, agents):
     R = MSPP_PD_NBP_pb.addMVar(R_var_shape,
                                vtype=GRB.BINARY,  # 13) Binary constraints
                                name="R")
-    Xi_var_shape = len(nodes)
-    Xi = MSPP_PD_NBP_pb.addMVar(Xi_var_shape,
-                                vtype=GRB.BINARY,  # 14) Binary constraints
-                                name="Xi")
+    Zeta_var_shape = len(nodes)
+    Zeta = MSPP_PD_NBP_pb.addMVar(Zeta_var_shape,
+                                  vtype=GRB.BINARY,  # 14) Binary constraints
+                                  name="Zeta")
 
     # 9) Additional objective
     penalty_obj = gb.quicksum(
-        Xi[node] for node in nodes
+        Zeta[node] for node in nodes
     )
     MSPP_PD_NBP_pb.setObjectiveN(
         penalty_obj, index=1, weight=1, name="Penalty")
 
     # 10,11) Turning on r_i constraints
-    # * Think a bit to understand
     for arc in w_arcs:
         for agent in agents:
-            R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
-            R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+            MSPP_PD_NBP_pb.addConstr(
+                R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
+            )
+            MSPP_PD_NBP_pb.addConstr(
+                R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+            )
 
     # 12) Turning on xi_i constraints
     # ! Different from paper. Paper seems weird, the -1 should be outside the summation
@@ -164,10 +167,10 @@ def set_NBP(nodes, w_arcs, agents):
         MSPP_PD_NBP_pb.addConstr(
             1/len(agents) *
             (gb.quicksum(R[node, agent.idx] for agent in agents) - 1)
-            <= Xi[node]
+            <= Zeta[node]
         )
 
-    return MSPP_PD_NBP_pb, X, R, Xi
+    return MSPP_PD_NBP_pb, X, R, Zeta
 
 
 def set_ALP(nodes, w_arcs, agents):
@@ -210,7 +213,6 @@ def set_ALP(nodes, w_arcs, agents):
             (gb.quicksum(X[arc.idx, agent.idx] for agent in agents))
             <= Eps[arc.idx]
         )
-        # ? Do we really need the following kind of constraints
         MSPP_PD_ALP_pb.addConstr(
             Eps[arc.idx] <= gb.quicksum(X[arc.idx, agent.idx]
                                         for agent in agents)
@@ -261,8 +263,12 @@ def set_NLP(nodes, w_arcs, agents):
     # 10,11) Turning on r_i constraints
     for arc in w_arcs:
         for agent in agents:
-            R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
-            R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+            MSPP_PD_NLP_pb.addConstr(
+                R[arc.i, agent.idx] >= X[arc.idx, agent.idx]
+            )
+            MSPP_PD_NLP_pb.addConstr(
+                R[arc.j, agent.idx] >= X[arc.idx, agent.idx]
+            )
 
     # 19) Turning on theta_i constraints
     for node in nodes:
@@ -271,7 +277,6 @@ def set_NLP(nodes, w_arcs, agents):
             (gb.quicksum(R[node, agent.idx] for agent in agents))
             <= Theta[node]
         )
-        # ? Do we really need the following kind of constraints
         MSPP_PD_NLP_pb.addConstr(
             Theta[node] <= gb.quicksum(R[node, agent.idx]
                                        for agent in agents)
@@ -372,7 +377,6 @@ def set_NQP(nodes, w_arcs, agents):
     )
 
     # 10,11) Turning on r_i constraints
-    # * Think a bit to understand
     for arc in w_arcs:
         for agent in agents:
             MSPP_PD_NQP_pb.addConstr(
@@ -414,7 +418,7 @@ def set_NQP(nodes, w_arcs, agents):
 
 def set_problem(problem_type, nodes, w_arcs, agents):
     """Formulate the specified optimization problem for a network instance given the agents to route
-    
+
     Args:
         problem_type (str): The optimization problem to formulate. Only MSPP and MSPP-PD variants are accepted
         nodes (list): list of the nodes in the network instance
