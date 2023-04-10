@@ -1,5 +1,6 @@
 """ Module that contains classes and functions to store and generate variables used for the MSPP and MSPP-PD problems formulation"""
 from . import random
+from . import itertools
 
 
 class WArc:
@@ -95,26 +96,6 @@ def get_nodes(networks_df):
     return [i for i in starting_nodes.union(ending_nodes).unique()]
 
 
-def _agent_should_start_on_node(agent_idx, node, first_network_column):
-    """Tells if an agent should start at a given node
-
-    Notice that the return value follows the same logic explained in section 3.3 of the paper.
-    This function is used inside _generate_agents_as_in_paper()
-
-    Args:
-        agent_idx (int): unique identifier of the agent to query
-        node (int): node under consideration
-        first_network_column (list): a list containing the nodes in the first column of the network
-
-    Returns:
-        bool: boolean value that is True if the agent should start on the passed node or False otherwise 
-    """
-
-    assert node in first_network_column
-
-    return agent_idx % len(first_network_column) == node
-
-
 def _generate_agents_with_high_simmetry(network_shape, num_of_agents):
     """Generates a number of agents having same source and terminus nodes within the network
 
@@ -158,17 +139,26 @@ def _generate_agents_as_in_paper(network_shape, num_of_agents):
         list: a list containing the generated agents
     """
 
-    num_of_network_nodes = network_shape[0] * network_shape[1]
-    num_of_network_rows = network_shape[0]
-    first_network_column = list(range(num_of_network_rows))
+    num_of_rows, num_of_cols = network_shape
+    num_of_nodes = num_of_rows*num_of_cols
+    first_col = list(range(num_of_rows))
 
-    agent_idxs = list(range(num_of_agents))
+    even_agents_sources = first_col[::2]
+    odd_agents_sources = first_col[1::2]
+    more_agents_sources = itertools.cycle(
+        itertools.chain(even_agents_sources, odd_agents_sources))
 
-    return [Agent(node,
-                  node + num_of_network_nodes - num_of_network_rows,
-                  agent_idx)
-            for node in first_network_column
-            for agent_idx in agent_idxs if _agent_should_start_on_node(agent_idx, node, first_network_column)]
+    agents = []
+    for agent_idx in range(num_of_agents):
+        if agent_idx < num_of_rows:
+            agent_source = agent_idx
+        else:
+            agent_source = next(more_agents_sources)
+        agents.append(Agent(agent_source,
+                            agent_source + num_of_nodes - num_of_rows,
+                            agent_idx))
+
+    return agents
 
 
 def _generate_agents_with_low_simmetry(network_shape, num_of_agents):
